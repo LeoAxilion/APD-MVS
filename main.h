@@ -16,6 +16,9 @@
 #include <vector_types.h>
 // Includes STD libs
 #include <vector>
+#include <cstddef>
+#include <utility>
+#include <cmath>
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -29,6 +32,7 @@
 #include <cstdarg>
 #include <random>
 #include <unordered_map>
+#include <stdexcept>
 // Includes Boost filesystem
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
@@ -101,9 +105,39 @@ struct Problem {
 	path result_folder;
 	int initial_image_scale = 4;
 	int scale_size = 1;
+	std::shared_ptr<class ScaledImageCache> scaled_image_cache;
 	PatchMatchParams params;
 	bool show_medium_result = false;
 	int iteration;
 };
+
+// Holds the already resized grayscale views needed by the next APD problem.
+// The per-scale files live on disk; only the active reference/source set is
+// retained in memory between successive ProcessProblem calls.
+class ScaledImageCache {
+public:
+	explicit ScaledImageCache(size_t capacity);
+	void Retain(const std::vector<int> &image_ids);
+	void SetOriginalSize(int image_id, const cv::Size &size);
+	cv::Size OriginalSize(int image_id) const;
+	cv::Mat Get(int image_id, const boost::filesystem::path &scaled_image_path);
+	void Clear();
+	void ResetStats();
+	size_t CacheHits() const { return cache_hits; }
+	size_t CacheMisses() const { return cache_misses; }
+	double DiskReadSeconds() const { return disk_read_seconds; }
+	size_t Capacity() const { return capacity; }
+
+private:
+	size_t capacity;
+	size_t cache_hits = 0;
+	size_t cache_misses = 0;
+	double disk_read_seconds = 0.0;
+	std::unordered_map<int, cv::Mat> images;
+	std::unordered_map<int, cv::Size> original_sizes;
+};
+
+boost::filesystem::path ScaledImagePath(const boost::filesystem::path &dense_folder,
+	int image_id, int initial_image_scale, int pyramid_scale);
 
 #endif // !_MAIN_H_

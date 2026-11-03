@@ -71,6 +71,8 @@ After you prepare the dataset, and you want to run the test for ETH3D/office, yo
 
 `--initial-image-scale N` scales both image dimensions by `1/N` before APD's internal pyramid processing. It defaults to `4`; use `1` for the original image resolution. Each pyramid level resizes directly from the input image, and the camera intrinsics are scaled to match.
 
+At the beginning of each pyramid level, APD prepares one grayscale, resized temporary file for each view used in the pair list. `ProcessProblem` loads only its reference/source views into a shared in-memory cache, retaining overlapping views for the next problem. The temporary scaled files are removed when that pyramid level finishes.
+
 The result will be saved in the folder office/APD, and the point cloud is saved as  "APD.ply"
 
 It is very easy to use, and you can modify our code as you need.

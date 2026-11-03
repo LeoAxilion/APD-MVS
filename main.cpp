@@ -48,6 +48,61 @@ void GenerateSampleList(const path &dense_folder, std::vector<Problem> &problems
 	}
 }
 
+std::vector<path> PrepareScaleImages(const std::vector<Problem> &problems,
+	int pyramid_scale, ScaledImageCache &cache) {
+	std::unordered_set<int> image_ids;
+	for (const auto &problem : problems) {
+		image_ids.insert(problem.ref_image_id);
+		image_ids.insert(problem.src_image_ids.begin(), problem.src_image_ids.end());
+	}
+	std::vector<path> files;
+	files.reserve(image_ids.size());
+	const auto started = std::chrono::steady_clock::now();
+	const int initial_scale = problems.front().initial_image_scale;
+	const int effective_scale = initial_scale * pyramid_scale;
+	const path cache_dir = problems.front().dense_folder / path("APD") / path("scaled_images");
+	create_directories(cache_dir);
+	size_t completed = 0;
+	for (const int image_id : image_ids) {
+		const path image_path = problems.front().dense_folder / path("images") /
+			path(ToFormatIndex(image_id) + ".jpg");
+		cv::Mat image = cv::imread(image_path.string(), cv::IMREAD_GRAYSCALE);
+		if (image.empty()) throw std::runtime_error("Cannot read image: " + image_path.string());
+		const cv::Size original_size = image.size();
+		cache.SetOriginalSize(image_id, original_size);
+		const int width = std::max(1, static_cast<int>(std::round(
+			original_size.width / static_cast<double>(effective_scale))));
+		const int height = std::max(1, static_cast<int>(std::round(
+			original_size.height / static_cast<double>(effective_scale))));
+		cv::Mat image_float, scaled;
+		image.convertTo(image_float, CV_32FC1);
+		if (width == image.cols && height == image.rows) scaled = image_float;
+		else cv::resize(image_float, scaled, cv::Size(width, height), 0, 0, cv::INTER_LINEAR);
+		const path scaled_path = ScaledImagePath(problems.front().dense_folder, image_id,
+			initial_scale, pyramid_scale);
+		if (exists(scaled_path)) remove(scaled_path);
+		if (!WriteBinMat(scaled_path, scaled)) {
+			throw std::runtime_error("Cannot write prepared scaled image: " + scaled_path.string());
+		}
+		files.push_back(scaled_path);
+		if (++completed % 20 == 0 || completed == image_ids.size()) {
+			std::cout << "Prepared scaled images " << completed << "/" << image_ids.size()
+				<< " for pyramid scale " << pyramid_scale << std::endl;
+		}
+	}
+	std::cout << "Prepared " << files.size() << " scaled image files for pyramid scale "
+		<< pyramid_scale << " in "
+		<< std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count()
+		<< " s" << std::endl;
+	return files;
+}
+
+void RemoveScaleImageFiles(const std::vector<path> &files) {
+	for (const auto &file : files) {
+		if (exists(file)) remove(file);
+	}
+}
+
 bool CheckImages(const std::vector<Problem> &problems) {
 	if (problems.size() == 0) {
 		return false;
@@ -183,8 +238,31 @@ int main(int argc, char **argv) {
 	int round_num = ComputeRoundNum(problems, initial_image_scale);
 
 	std::cout << "Round nums: " << round_num << std::endl;
+	size_t image_cache_capacity = 1;
+	for (const auto &problem : problems) {
+		std::unordered_set<int> active(problem.src_image_ids.begin(), problem.src_image_ids.end());
+		active.insert(problem.ref_image_id);
+		image_cache_capacity = std::max(image_cache_capacity, active.size());
+	}
+	if (image_cache_capacity > MAX_IMAGES) {
+		std::cerr << "A ProcessProblem requires " << image_cache_capacity
+			<< " images, exceeding MAX_IMAGES=" << MAX_IMAGES << ".\n";
+		return EXIT_FAILURE;
+	}
+	auto scaled_image_cache = std::make_shared<ScaledImageCache>(image_cache_capacity);
+	for (auto &problem : problems) problem.scaled_image_cache = scaled_image_cache;
+	std::cout << "Prepared-image cache capacity: " << image_cache_capacity
+		<< " views (active views retained; each scale's temporary files are deleted "
+		<< "when that scale finishes).\n";
 	int iteration_index = 0;
 	for (int i = 0; i < round_num; ++i) {
+		const int pyramid_scale = static_cast<int>(std::pow(2, round_num - 1 - i));
+		for (auto &problem : problems) {
+			problem.scale_size = pyramid_scale;
+		}
+		const std::vector<path> scaled_image_files = PrepareScaleImages(
+			problems, pyramid_scale, *scaled_image_cache);
+		scaled_image_cache->ResetStats();
 		for (auto &problem : problems) {
 			{
 				auto &params = problem.params;
@@ -233,6 +311,13 @@ int main(int argc, char **argv) {
 			iteration_index++;
 		}
 		std::cout << "Round: " << i << " done\n";
+		std::cout << "Scaled-image cache at pyramid scale " << pyramid_scale << ": "
+			<< scaled_image_cache->CacheHits() << " hits, "
+			<< scaled_image_cache->CacheMisses() << " temp-file reads, "
+			<< scaled_image_cache->DiskReadSeconds() << " s reading scaled images.\n";
+		scaled_image_cache->Clear();
+		RemoveScaleImageFiles(scaled_image_files);
+		std::cout << "Pyramid scale " << pyramid_scale << " temporary scaled images deleted.\n";
 	}
 
 	RunFusion(dense_folder, problems);

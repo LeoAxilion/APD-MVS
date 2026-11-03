@@ -48,6 +48,72 @@ bool WriteBinMat(const path &mat_path, const cv::Mat &mat) {
 	return true;
 }
 
+ScaledImageCache::ScaledImageCache(size_t max_images) : capacity(max_images) {
+	if (capacity == 0) throw std::invalid_argument("scaled-image cache capacity must be positive");
+}
+
+void ScaledImageCache::Retain(const std::vector<int> &image_ids) {
+	std::unordered_set<int> keep(image_ids.begin(), image_ids.end());
+	if (keep.size() > capacity) {
+		throw std::runtime_error("ProcessProblem image count exceeds scaled-image cache capacity");
+	}
+	for (auto it = images.begin(); it != images.end();) {
+		if (keep.find(it->first) == keep.end()) it = images.erase(it);
+		else ++it;
+	}
+}
+
+void ScaledImageCache::SetOriginalSize(int image_id, const cv::Size &size) {
+	original_sizes[image_id] = size;
+}
+
+cv::Size ScaledImageCache::OriginalSize(int image_id) const {
+	auto it = original_sizes.find(image_id);
+	if (it == original_sizes.end()) {
+		throw std::runtime_error("Original dimensions are missing for scaled APD image " +
+			std::to_string(image_id));
+	}
+	return it->second;
+}
+
+cv::Mat ScaledImageCache::Get(int image_id, const path &scaled_image_path) {
+	auto it = images.find(image_id);
+	if (it != images.end()) {
+		++cache_hits;
+		return it->second;
+	}
+	if (images.size() >= capacity) {
+		throw std::runtime_error("Scaled-image cache is full; Retain() must run before ProcessProblem");
+	}
+	cv::Mat image;
+	const auto started = std::chrono::steady_clock::now();
+	if (!ReadBinMat(scaled_image_path, image) || image.type() != CV_32FC1 || image.empty()) {
+		throw std::runtime_error("Cannot load prepared scaled APD image: " + scaled_image_path.string());
+	}
+	disk_read_seconds += std::chrono::duration<double>(
+		std::chrono::steady_clock::now() - started).count();
+	++cache_misses;
+	images.emplace(image_id, image);
+	return image;
+}
+
+void ScaledImageCache::Clear() {
+	images.clear();
+}
+
+void ScaledImageCache::ResetStats() {
+	cache_hits = 0;
+	cache_misses = 0;
+	disk_read_seconds = 0.0;
+}
+
+path ScaledImagePath(const path &dense_folder, int image_id,
+	int initial_image_scale, int pyramid_scale) {
+	return dense_folder / path("APD") / path("scaled_images") /
+		path(ToFormatIndex(image_id) + "_initial" + std::to_string(initial_image_scale) +
+		"_pyramid" + std::to_string(pyramid_scale) + ".dmb");
+}
+
 bool ReadCamera(const path &cam_path, Camera &cam)
 {
 	ifstream in(cam_path);
@@ -399,55 +465,38 @@ APD::~APD() {
 void APD::InuputInitialization() {
 	images.clear();
 	cameras.clear();
-	// get folder
-	path image_folder = problem.dense_folder / path("images");
 	path cam_folder = problem.dense_folder / path("cams");
-	//path weak_folder = problem.dense_folder / path("weaks");
-	// =================================================
-	// read ref image and src images
-	// ref
-	{ 
-		path ref_image_path = image_folder / path(ToFormatIndex(problem.ref_image_id) + ".jpg");
-		cv::Mat_<uint8_t> image_uint = cv::imread(ref_image_path.string(), cv::IMREAD_GRAYSCALE);
-		cv::Mat image_float;
-		image_uint.convertTo(image_float, CV_32FC1);
-		images.push_back(image_float);
-		width = image_float.cols;
-		height = image_float.rows;
+	if (!problem.scaled_image_cache) {
+		throw std::runtime_error("ProcessProblem has no prepared scaled-image cache");
 	}
-	// src
-	for (const auto &src_idx : problem.src_image_ids) {
-		path src_image_path = image_folder / path(ToFormatIndex(src_idx) + ".jpg");
-		cv::Mat_<uint8_t> image_uint = cv::imread(src_image_path.string(), cv::IMREAD_GRAYSCALE);
-		cv::Mat image_float;
-		image_uint.convertTo(image_float, CV_32FC1);
-		images.push_back(image_float);
-		// assert: images_float.cols == width;
-		// assert: images_float.rows == height;
-	}
+	std::vector<int> active_image_ids = problem.src_image_ids;
+	active_image_ids.push_back(problem.ref_image_id);
+	problem.scaled_image_cache->Retain(active_image_ids);
+	const int effective_scale = problem.initial_image_scale * problem.scale_size;
+	auto append_prepared_view = [&](int image_id) {
+		const path scaled_path = ScaledImagePath(problem.dense_folder, image_id,
+			problem.initial_image_scale, problem.scale_size);
+		cv::Mat image_float = problem.scaled_image_cache->Get(image_id, scaled_path);
+		const cv::Size original_size = problem.scaled_image_cache->OriginalSize(image_id);
+		Camera camera;
+		const path camera_path = cam_folder / path(ToFormatIndex(image_id) + "_cam.txt");
+		ReadCamera(camera_path, camera);
+		const float scale_x = image_float.cols / static_cast<float>(original_size.width);
+		const float scale_y = image_float.rows / static_cast<float>(original_size.height);
+		camera.K[0] *= scale_x; camera.K[2] *= scale_x;
+		camera.K[4] *= scale_y; camera.K[5] *= scale_y;
+		camera.width = image_float.cols;
+		camera.height = image_float.rows;
+		images.push_back(std::move(image_float));
+		cameras.push_back(camera);
+	};
+	append_prepared_view(problem.ref_image_id);
+	width = images.front().cols;
+	height = images.front().rows;
+	for (const auto src_idx : problem.src_image_ids) append_prepared_view(src_idx);
 	if (images.size() > MAX_IMAGES) {
 		std::cerr << "Can't process so much images: " << images.size() << std::endl;
 		exit(EXIT_FAILURE);
-	}
-	// =================================================
-	// read ref camera and src camera
-	// ref
-	{
-		path ref_cam_path = cam_folder / path(ToFormatIndex(problem.ref_image_id) + "_cam.txt");
-		Camera cam;
-		ReadCamera(ref_cam_path, cam);
-		cam.width = width;
-		cam.height = height;
-		cameras.push_back(cam);
-	}
-	// src
-	for (const auto &src_idx : problem.src_image_ids) {
-		path src_cam_path = cam_folder / path(ToFormatIndex(src_idx) + "_cam.txt");
-		Camera cam;
-		ReadCamera(src_cam_path, cam);
-		cam.width = width;
-		cam.height = height;
-		cameras.push_back(cam);
 	}
 	// =================================================
 	// set some params
@@ -459,31 +508,8 @@ void APD::InuputInitialization() {
 	std::cout << "Read images and camera done\n";
 	std::cout << "Depth range: " << params_host.depth_min << " " << params_host.depth_max << std::endl;
 	std::cout << "Num images: " << params_host.num_images << std::endl;
-	// =================================================
-	// Resize each view directly from the input image for this pyramid level.
-	const int effective_scale = problem.initial_image_scale * problem.scale_size;
-	if (effective_scale != 1) {
-		for (int i = 0; i < num_images; ++i) {
-			const float factor = 1.0f / static_cast<float>(effective_scale);
-			const int new_cols = std::max(1, static_cast<int>(std::round(images[i].cols * factor)));
-			const int new_rows = std::max(1, static_cast<int>(std::round(images[i].rows * factor)));
-			const float scale_x = new_cols / static_cast<float>(images[i].cols);
-			const float scale_y = new_rows / static_cast<float>(images[i].rows);
-			cv::Mat_<float> scaled_image_float;
-			cv::resize(images[i], scaled_image_float, cv::Size(new_cols, new_rows), 0, 0, cv::INTER_LINEAR);
-			images[i] = scaled_image_float.clone();
-			width = scaled_image_float.cols;
-			height = scaled_image_float.rows;
-			cameras[i].K[0] *= scale_x;
-			cameras[i].K[2] *= scale_x;
-			cameras[i].K[4] *= scale_y;
-			cameras[i].K[5] *= scale_y;
-			cameras[i].width = width;
-			cameras[i].height = height;
-		}
-		std::cout << "Scale images and cameras done\n";
-	}
-	std::cout << "Image size: " << width << " * " << height << std::endl;
+	std::cout << "Loaded prepared scale 1/" << effective_scale << " images and cameras: "
+		<< width << " * " << height << std::endl;
 	// =================================================
 	// read depth form geom consistency
 	if (params_host.geom_consistency) {
