@@ -66,8 +66,10 @@ Such as DTU and BlenderMVS, you may explore them yourself. !!! But remember to m
 After you prepare the dataset, and you want to run the test for ETH3D/office, you can follow this command line.
 
 ```bash
-./APD <ETH3D root path>/office
+./APD <ETH3D root path>/office [gpu_index] --initial-image-scale 4
 ```
+
+`--initial-image-scale N` scales both image dimensions by `1/N` before APD's internal pyramid processing. It defaults to `4`; use `1` for the original image resolution. Each pyramid level resizes directly from the input image, and the camera intrinsics are scaled to match.
 
 The result will be saved in the folder office/APD, and the point cloud is saved as  "APD.ply"
 

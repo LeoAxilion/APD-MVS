@@ -69,7 +69,7 @@ bool CheckImages(const std::vector<Problem> &problems) {
 	return true;
 }
 
-int ComputeRoundNum(const std::vector<Problem> &problems) {
+int ComputeRoundNum(const std::vector<Problem> &problems, const int initial_image_scale) {
 	if (problems.size() == 0) {
 		return 0;
 	}
@@ -79,6 +79,7 @@ int ComputeRoundNum(const std::vector<Problem> &problems) {
 		return 0;
 	}
 	int max_size = MAX(image.cols, image.rows);
+	max_size = MAX(1, (max_size + initial_image_scale / 2) / initial_image_scale);
 	int round_num = 1;
 	while (max_size > 1000) {
 		max_size /= 2;
@@ -139,17 +140,34 @@ void ProcessProblem(const Problem &problem) {
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
-		std::cerr << "USAGE: APD dense_folder\n";
+		std::cerr << "USAGE: APD dense_folder [gpu_index] [--initial-image-scale N]\n";
 		return EXIT_FAILURE;
 	}
 	path dense_folder(argv[1]);
 	path output_folder = dense_folder / path("APD");
 	create_directory(output_folder);
-	// set cuda device for multi-gpu machine
 	int gpu_index = 0;
-	if (argc == 3) {
-		gpu_index = std::atoi(argv[2]);
+	int initial_image_scale = 4;
+	int arg = 2;
+	if (arg < argc && std::string(argv[arg]).find("--") != 0) {
+		gpu_index = std::atoi(argv[arg++]);
 	}
+	while (arg < argc) {
+		const std::string option(argv[arg++]);
+		if (option == "--initial-image-scale" && arg < argc) {
+			const std::string value(argv[arg++]);
+			std::stringstream scale_stream(value);
+			char trailing;
+			if (!(scale_stream >> initial_image_scale) || (scale_stream >> trailing) || initial_image_scale < 1) {
+				std::cerr << "--initial-image-scale must be an integer >= 1 (1 = original resolution)\n";
+				return EXIT_FAILURE;
+			}
+		} else {
+			std::cerr << "Unknown or incomplete option: " << option << "\n";
+			return EXIT_FAILURE;
+		}
+	}
+	std::cout << "Initial image scale: 1/" << initial_image_scale << std::endl;
 	cudaSetDevice(gpu_index);
 	// generate problems
 	std::vector<Problem> problems;
@@ -158,10 +176,11 @@ int main(int argc, char **argv) {
 		std::cerr << "Images may error, check it!\n";
 		return EXIT_FAILURE;
 	}
+	for (auto &problem : problems) problem.initial_image_scale = initial_image_scale;
 	int num_images = problems.size();
 	std::cout << "There are " << num_images << " problems needed to be processed!" << std::endl;
 
-	int round_num = ComputeRoundNum(problems);
+	int round_num = ComputeRoundNum(problems, initial_image_scale);
 
 	std::cout << "Round nums: " << round_num << std::endl;
 	int iteration_index = 0;

@@ -99,6 +99,7 @@ struct Problem {
 	std::vector<int> src_image_ids;
 	path dense_folder;
 	path result_folder;
+	int initial_image_scale = 4;
 	int scale_size = 1;
 	PatchMatchParams params;
 	bool show_medium_result = false;

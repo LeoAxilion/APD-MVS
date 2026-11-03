@@ -460,23 +460,20 @@ void APD::InuputInitialization() {
 	std::cout << "Depth range: " << params_host.depth_min << " " << params_host.depth_max << std::endl;
 	std::cout << "Num images: " << params_host.num_images << std::endl;
 	// =================================================
-	// scale images
-	if (problem.scale_size != 1) {
+	// Resize each view directly from the input image for this pyramid level.
+	const int effective_scale = problem.initial_image_scale * problem.scale_size;
+	if (effective_scale != 1) {
 		for (int i = 0; i < num_images; ++i) {
-			const float factor = 1.0f / (float)(problem.scale_size);
-			const int new_cols = std::round(images[i].cols * factor);
-			const int new_rows = std::round(images[i].rows * factor);
-
+			const float factor = 1.0f / static_cast<float>(effective_scale);
+			const int new_cols = std::max(1, static_cast<int>(std::round(images[i].cols * factor)));
+			const int new_rows = std::max(1, static_cast<int>(std::round(images[i].rows * factor)));
 			const float scale_x = new_cols / static_cast<float>(images[i].cols);
 			const float scale_y = new_rows / static_cast<float>(images[i].rows);
-
 			cv::Mat_<float> scaled_image_float;
 			cv::resize(images[i], scaled_image_float, cv::Size(new_cols, new_rows), 0, 0, cv::INTER_LINEAR);
 			images[i] = scaled_image_float.clone();
-
 			width = scaled_image_float.cols;
 			height = scaled_image_float.rows;
-
 			cameras[i].K[0] *= scale_x;
 			cameras[i].K[2] *= scale_x;
 			cameras[i].K[4] *= scale_y;
