@@ -293,9 +293,9 @@ bool ExportPointCloud(const path& point_cloud_path, std::vector<PointList>& poin
 	out << "property float nx\n";
 	out << "property float ny\n";
 	out << "property float nz\n";
-	out << "property uchar diffuse_blue\n";
-	out << "property uchar diffuse_green\n";
-	out << "property uchar diffuse_red\n";
+	out << "property uchar red\n";
+	out << "property uchar green\n";
+	out << "property uchar blue\n";
 	out << "end_header\n";
 
 	for (size_t idx = 0; idx < pointcloud.size(); idx++)
@@ -308,10 +308,11 @@ bool ExportPointCloud(const path& point_cloud_path, std::vector<PointList>& poin
 		float nz = pointcloud[idx].normal.z;
 
 
-		cv::Vec3b pixel;
-		pixel[0] = static_cast<uchar>(pointcloud[idx].color.x);
-		pixel[1] = static_cast<uchar>(pointcloud[idx].color.y);
-		pixel[2] = static_cast<uchar>(pointcloud[idx].color.z);
+		// Point colors are accumulated in OpenCV's BGR channel order.
+		// PLY's conventional red/green/blue properties must be written as RGB.
+		const uchar blue = static_cast<uchar>(pointcloud[idx].color.x);
+		const uchar green = static_cast<uchar>(pointcloud[idx].color.y);
+		const uchar red = static_cast<uchar>(pointcloud[idx].color.z);
 
 		out.write((char *)&px, sizeof(float));
 		out.write((char *)&py, sizeof(float));
@@ -320,9 +321,9 @@ bool ExportPointCloud(const path& point_cloud_path, std::vector<PointList>& poin
 		out.write((char *)&ny, sizeof(float));
 		out.write((char *)&nz, sizeof(float));
 
-		out.write((char *)&pixel[0], sizeof(uchar));
-		out.write((char *)&pixel[1], sizeof(uchar));
-		out.write((char *)&pixel[2], sizeof(uchar));
+		out.write((char *)&red, sizeof(uchar));
+		out.write((char *)&green, sizeof(uchar));
+		out.write((char *)&blue, sizeof(uchar));
 	}
 	out.close();
 	return true;
