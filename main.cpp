@@ -201,6 +201,7 @@ int main(int argc, char **argv) {
 	path dense_folder(argv[1]);
 	path output_folder = dense_folder / path("APD");
 	create_directory(output_folder);
+	// Keep the legacy positional GPU argument while allowing named options.
 	int gpu_index = 0;
 	int initial_image_scale = 4;
 	bool show_medium_result = false;
@@ -208,24 +209,28 @@ int main(int argc, char **argv) {
 	if (arg < argc && std::string(argv[arg]).find("--") != 0) {
 		gpu_index = std::atoi(argv[arg++]);
 	}
-	while (arg < argc) {
-		const std::string option(argv[arg++]);
-		if (option == "--initial-image-scale" && arg < argc) {
-			const std::string value(argv[arg++]);
-			std::stringstream scale_stream(value);
-			char trailing;
-			if (!(scale_stream >> initial_image_scale) || (scale_stream >> trailing) || initial_image_scale < 1) {
-				std::cerr << "--initial-image-scale must be an integer >= 1 (1 = original resolution)\n";
-				return EXIT_FAILURE;
+	try {
+		while (arg < argc) {
+			const std::string option(argv[arg++]);
+			if (option == "--initial-image-scale" && arg < argc) {
+				const std::string value(argv[arg++]);
+				size_t parsed = 0;
+				initial_image_scale = std::stoi(value, &parsed);
+				if (parsed != value.size() || initial_image_scale < 1) {
+					throw std::invalid_argument("--initial-image-scale must be an integer >= 1 (1 = original resolution)");
+				}
+			} else if (option == "--show-medium-result") {
+				show_medium_result = true;
+			} else {
+				throw std::invalid_argument("Unknown or incomplete option: " + option);
 			}
-		} else if (option == "--show-medium-result") {
-			show_medium_result = true;
-		} else {
-			std::cerr << "Unknown or incomplete option: " << option << "\n";
-			return EXIT_FAILURE;
 		}
+	} catch (const std::exception &error) {
+		std::cerr << error.what() << "\n";
+		return EXIT_FAILURE;
 	}
-	std::cout << "Initial image scale: 1/" << initial_image_scale << std::endl;
+	std::cout << "Initial image scale: 1/" << initial_image_scale
+			  << " (width and height are each scaled by 1/" << initial_image_scale << ")\n";
 	cudaSetDevice(gpu_index);
 	// generate problems
 	std::vector<Problem> problems;

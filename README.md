@@ -69,7 +69,7 @@ After you prepare the dataset, and you want to run the test for ETH3D/office, yo
 ./APD <ETH3D root path>/office [gpu_index] --initial-image-scale 4
 ```
 
-`--initial-image-scale N` scales both image dimensions by `1/N` before APD's internal pyramid processing. It defaults to `4`; use `1` for the original image resolution. Each pyramid level resizes directly from the input image, and the camera intrinsics are scaled to match.
+`--initial-image-scale N` scales both image dimensions by `1/N` before APD's internal pyramid processing. It defaults to `4`; use `1` for the original image resolution. Images and camera intrinsics are resized directly from the input for each pyramid level.
 
 At the beginning of each pyramid level, APD prepares one grayscale, resized temporary file for each view used in the pair list. `ProcessProblem` loads only its reference/source views into a shared in-memory cache, retaining overlapping views for the next problem. The temporary scaled files are removed when that pyramid level finishes.
 
