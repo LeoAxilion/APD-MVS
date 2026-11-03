@@ -290,6 +290,9 @@ bool ExportPointCloud(const path& point_cloud_path, std::vector<PointList>& poin
 	out << "property float x\n";
 	out << "property float y\n";
 	out << "property float z\n";
+	out << "property float nx\n";
+	out << "property float ny\n";
+	out << "property float nz\n";
 	out << "property uchar diffuse_blue\n";
 	out << "property uchar diffuse_green\n";
 	out << "property uchar diffuse_red\n";
@@ -300,6 +303,9 @@ bool ExportPointCloud(const path& point_cloud_path, std::vector<PointList>& poin
 		float px = pointcloud[idx].coord.x;
 		float py = pointcloud[idx].coord.y;
 		float pz = pointcloud[idx].coord.z;
+		float nx = pointcloud[idx].normal.x;
+		float ny = pointcloud[idx].normal.y;
+		float nz = pointcloud[idx].normal.z;
 
 
 		cv::Vec3b pixel;
@@ -310,6 +316,9 @@ bool ExportPointCloud(const path& point_cloud_path, std::vector<PointList>& poin
 		out.write((char *)&px, sizeof(float));
 		out.write((char *)&py, sizeof(float));
 		out.write((char *)&pz, sizeof(float));
+		out.write((char *)&nx, sizeof(float));
+		out.write((char *)&ny, sizeof(float));
+		out.write((char *)&nz, sizeof(float));
 
 		out.write((char *)&pixel[0], sizeof(uchar));
 		out.write((char *)&pixel[1], sizeof(uchar));
@@ -974,6 +983,7 @@ void RunFusion(const path &dense_folder, const std::vector<Problem> &problems)
 				if (num_consistent >= 1 && (dynamic_consistency > factor * num_consistent)) {
 					PointList point3D;
 					point3D.coord = consistent_Point;
+					point3D.normal = make_float3(ref_normal[0], ref_normal[1], ref_normal[2]);
 					float consistent_Color[3] = { (float)images[ref_index].at<cv::Vec3b>(r, c)[0], (float)images[ref_index].at<cv::Vec3b>(r, c)[1], (float)images[ref_index].at<cv::Vec3b>(r, c)[2] };
 					for (int j = 0; j < num_ngb; ++j) {
 						if (used_list[j].x == -1)
@@ -995,7 +1005,7 @@ void RunFusion(const path &dense_folder, const std::vector<Problem> &problems)
 			}
 		}
 	}
-	path ply_path = dense_folder / path("APD") / path("APD.ply");
+	path ply_path = dense_folder / path("APD") / path("fused.ply");
 	ExportPointCloud(ply_path, PointCloud);
 }
 
@@ -1142,6 +1152,7 @@ void RunFusion_TAT_Intermediate(const path &dense_folder, const std::vector<Prob
 					}
 					if (count >= k) {
 						PointList point3D;						
+						point3D.normal = make_float3(ref_normal[0], ref_normal[1], ref_normal[2]);
 						float consistent_Color[3] = { (float)images[ref_index].at<cv::Vec3b>(r, c)[0], (float)images[ref_index].at<cv::Vec3b>(r, c)[1], (float)images[ref_index].at<cv::Vec3b>(r, c)[2] };
 						for (int j = 0; j < num_ngb; ++j) {
 							if (diff[j].use) {
@@ -1165,7 +1176,7 @@ void RunFusion_TAT_Intermediate(const path &dense_folder, const std::vector<Prob
 			}
 		}
 	}
-	path ply_path = dense_folder / path("APD") / path("APD.ply");
+	path ply_path = dense_folder / path("APD") / path("fused.ply");
 	ExportPointCloud(ply_path, PointCloud);
 }
 
@@ -1305,6 +1316,7 @@ void RunFusion_TAT_advanced(const path &dense_folder, const std::vector<Problem>
 					if (count >= k) {
 						PointList point3D;
 						point3D.coord = consistent_Point;
+						point3D.normal = make_float3(ref_normal[0], ref_normal[1], ref_normal[2]);
 						point3D.color = make_float3(consistent_Color[0], consistent_Color[1], consistent_Color[2]);
 						PointCloud.emplace_back(point3D);
 						masks[ref_index].at<uchar>(r, c) = 1;
@@ -1314,6 +1326,6 @@ void RunFusion_TAT_advanced(const path &dense_folder, const std::vector<Problem>
 			}
 		}
 	}
-	path ply_path = dense_folder / path("APD") / path("APD.ply");
+	path ply_path = dense_folder / path("APD") / path("fused.ply");
 	ExportPointCloud(ply_path, PointCloud);
 }

@@ -61,6 +61,7 @@ struct Camera {
 
 struct PointList {
 	float3 coord;
+	float3 normal;
 	float3 color;
 };
 
