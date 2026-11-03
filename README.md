@@ -73,7 +73,7 @@ After you prepare the dataset, and you want to run the test for ETH3D/office, yo
 
 At the beginning of each pyramid level, APD prepares one grayscale, resized temporary file for each view used in the pair list. `ProcessProblem` loads only its reference/source views into a shared in-memory cache, retaining overlapping views for the next problem. The temporary scaled files are removed when that pyramid level finishes.
 
-The result will be saved in the folder office/APD, and the point cloud is saved as  "APD.ply"
+The result will be saved in the folder office/APD, and the point cloud is saved as  "APD.ply". Final depth and normal maps are retained after fusion for downstream reconstruction tools. Intermediate depth/normal/weak preview images are only written when `--show-medium-result` is specified.
 
 It is very easy to use, and you can modify our code as you need.
 

@@ -195,7 +195,7 @@ void ProcessProblem(const Problem &problem) {
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
-		std::cerr << "USAGE: APD dense_folder [gpu_index] [--initial-image-scale N]\n";
+		std::cerr << "USAGE: APD dense_folder [gpu_index] [--initial-image-scale N] [--show-medium-result]\n";
 		return EXIT_FAILURE;
 	}
 	path dense_folder(argv[1]);
@@ -203,6 +203,7 @@ int main(int argc, char **argv) {
 	create_directory(output_folder);
 	int gpu_index = 0;
 	int initial_image_scale = 4;
+	bool show_medium_result = false;
 	int arg = 2;
 	if (arg < argc && std::string(argv[arg]).find("--") != 0) {
 		gpu_index = std::atoi(argv[arg++]);
@@ -217,6 +218,8 @@ int main(int argc, char **argv) {
 				std::cerr << "--initial-image-scale must be an integer >= 1 (1 = original resolution)\n";
 				return EXIT_FAILURE;
 			}
+		} else if (option == "--show-medium-result") {
+			show_medium_result = true;
 		} else {
 			std::cerr << "Unknown or incomplete option: " << option << "\n";
 			return EXIT_FAILURE;
@@ -231,7 +234,10 @@ int main(int argc, char **argv) {
 		std::cerr << "Images may error, check it!\n";
 		return EXIT_FAILURE;
 	}
-	for (auto &problem : problems) problem.initial_image_scale = initial_image_scale;
+	for (auto &problem : problems) {
+		problem.initial_image_scale = initial_image_scale;
+		problem.show_medium_result = show_medium_result;
+	}
 	int num_images = problems.size();
 	std::cout << "There are " << num_images << " problems needed to be processed!" << std::endl;
 
@@ -281,8 +287,8 @@ int main(int argc, char **argv) {
 				params.weak_peak_radius = 6;
 			}
 			problem.iteration = iteration_index;
-			problem.show_medium_result = true;
-			problem.scale_size = static_cast<int>(std::pow(2, round_num - 1 - i)); // scale 
+			problem.show_medium_result = show_medium_result;
+			problem.scale_size = static_cast<int>(std::pow(2, round_num - 1 - i)); // scale
 			ProcessProblem(problem);
 		}
 		iteration_index++;
@@ -304,8 +310,8 @@ int main(int argc, char **argv) {
 					params.weak_peak_radius = MAX(4 - 2 * j, 2);
 				}
 				problem.iteration = iteration_index;
-				problem.show_medium_result = true;
-				problem.scale_size = static_cast<int>(std::pow(2, round_num - 1 - i)); // scale 
+				problem.show_medium_result = show_medium_result;
+				problem.scale_size = static_cast<int>(std::pow(2, round_num - 1 - i)); // scale
 				ProcessProblem(problem);
 			}
 			iteration_index++;
@@ -325,8 +331,7 @@ int main(int argc, char **argv) {
 		for (size_t i = 0; i < problems.size(); ++i) {
 			const auto &problem = problems[i];
 			remove(problem.result_folder / path("weak.bin"));
-			remove(problem.result_folder / path("depths.dmb"));
-			remove(problem.result_folder / path("normals.dmb"));
+			// Keep final depth and normal maps for downstream reconstruction tools.
 			remove(problem.result_folder / path("selected_views.bin"));
 			//remove(problem.result_folder / path("neighbour.bin")); 
 			//remove(problem.result_folder / path("neighbour_map.bin"));
